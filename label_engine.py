@@ -86,6 +86,7 @@ CAMPOS_REQUERIDOS = {
     "tienda": ["Tienda", "TIENDA"],
     "cantidad": ["Cantidad", "CANTIDAD", "Cant"],
     "cedis": ["Cedis", "CEDIS"],
+    "proveedor": ["# Proveedor", "Proveedor", "No. Proveedor"],
 }
 
 
@@ -150,6 +151,7 @@ def leer_filas_crudas(file_bytes, filename, mapeo, cedis_desde_cadena,
             "Núm. Pedido": int(float(oc_val)),
             "Cadena": d.get(mapeo.get("cadena"), ""),
             "Cedis": cedis,
+            "Proveedor": d.get(mapeo["proveedor"]) if mapeo.get("proveedor") else None,
             "EAN-13": format_ean_value(d.get(mapeo["ean"])),
             "Estilo": d.get(mapeo["estilo"]),
             "Talla": str(d.get(mapeo["talla"])),
@@ -191,14 +193,15 @@ def construir_cajas(rows, modalidad, max_piezas=None):
             if current:
                 chunks.append(current)
 
+        cadena = items[0]["Cadena"]
         n_cajas = len(chunks)
         for idx, chunk in enumerate(chunks, start=1):
             estilos = sorted(set(x["Estilo"] for x in chunk))
             total_piezas = sum(x["Cantidad"] for x in chunk)
             productos = [{"ean": x["EAN-13"], "talla": x["Talla"], "color": x["Color"],
-                          "cant": str(x["Cantidad"])} for x in chunk]
+                          "cant": str(x["Cantidad"]), "estilo": x["Estilo"]} for x in chunk]
             boxes.append({
-                "oc": pedido, "cedis": cedis, "tienda": tienda,
+                "oc": pedido, "cadena": cadena, "cedis": cedis, "tienda": tienda,
                 "departamento": departamento, "descripcion": descripcion,
                 "estilos": estilos, "total_piezas": total_piezas,
                 "productos": productos, "caja_txt": f"{idx} de {n_cajas}",
@@ -207,66 +210,155 @@ def construir_cajas(rows, modalidad, max_piezas=None):
 
 
 # ---------------------------------------------------------------------------
-# Workbook Excel
+# Workbook Excel — replica el formato exacto usado con Label Matrix
+# (colores, fuente y estructura de columnas validados contra envios_WM.xlsx,
+# el archivo de referencia de producción, el 19-ago-2026)
 # ---------------------------------------------------------------------------
 
-MASTER_HEADERS = [
-    "Núm. Pedido", "Cadena", "Cedis", "EAN-13", "Estilo", "Talla", "Color",
-    "Descripcion", "Departamento", "Tienda", "Cantidad",
-]
+REF_HEADER_FILL = PatternFill(start_color="FF1F4E79", end_color="FF1F4E79", fill_type="solid")
+REF_HEADER_FONT = Font(name="Arial", size=10, bold=True, color="FFFFFFFF")
+REF_DATA_FONT = Font(name="Arial", size=10, bold=False)
+REF_ALIGN = Alignment(horizontal="center", vertical="center")
+
+
+def _ean_a_numero(v):
+    """Convierte a int si es un EAN puramente numérico (así lo espera Label Matrix)."""
+    s = str(v).strip()
+    return int(s) if s.isdigit() else s
+
+
+def _escribir_hoja(wb, nombre, headers, filas, ean_cols=()):
+    ws = wb.create_sheet(nombre)
+    ws.append(headers)
+    for r in filas:
+        ws.append(r)
+    for cell in ws[1]:
+        cell.fill = REF_HEADER_FILL
+        cell.font = REF_HEADER_FONT
+        cell.alignment = REF_ALIGN
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.font = REF_DATA_FONT
+            cell.alignment = REF_ALIGN
+    ws.freeze_panes = "A2"
+    for col_name in ean_cols:
+        if col_name in headers:
+            letter = get_column_letter(headers.index(col_name) + 1)
+            for cell in ws[letter][1:]:
+                cell.number_format = "0"
+    autofit_columns(ws)
+    return ws
 
 
 def construir_workbook(rows, boxes):
     wb = Workbook()
     wb.remove(wb.active)
 
-    ws = wb.create_sheet("Detalle Envíos")
-    ws.append(MASTER_HEADERS)
+    tiene_proveedor = any(r.get("Proveedor") not in (None, "") for r in rows)
+    tiene_desc = any(r.get("Descripcion") not in (None, "") for r in rows)
+    tiene_depto = any(r.get("Departamento") not in (None, "") for r in rows)
+
+    # ---- Detalle Envíos ----
+    detalle_headers = ["Núm. Pedido", "Cadena"]
+    if tiene_proveedor:
+        detalle_headers.append("# Proveedor")
+    detalle_headers += ["EAN-13", "Estilo", "Talla", "Color"]
+    if tiene_desc:
+        detalle_headers.append("Descripcion")
+    if tiene_depto:
+        detalle_headers.append("Departamento")
+    detalle_headers += ["Tienda", "Cantidad"]
+
+    filas_detalle = []
     for r in rows:
-        ws.append([r[h] for h in MASTER_HEADERS])
-    apply_header_style(ws)
-    freeze_header_row(ws)
-    format_column_as_text(ws, get_column_letter(MASTER_HEADERS.index("EAN-13") + 1))
-    apply_alternating_fill(ws, 2, ws.max_row)
-    autofit_columns(ws)
+        fila = [r["Núm. Pedido"], r["Cadena"]]
+        if tiene_proveedor:
+            fila.append(r.get("Proveedor"))
+        fila += [_ean_a_numero(r["EAN-13"]), r["Estilo"], r["Talla"], r["Color"]]
+        if tiene_desc:
+            fila.append(r.get("Descripcion"))
+        if tiene_depto:
+            fila.append(r.get("Departamento"))
+        fila += [r["Tienda"], r["Cantidad"]]
+        filas_detalle.append(fila)
+    _escribir_hoja(wb, "Detalle Envíos", detalle_headers, filas_detalle, ean_cols=["EAN-13"])
 
-    pedidos = sorted(set(r["Núm. Pedido"] for r in rows))
-    for pedido in pedidos:
-        sub = [r for r in rows if r["Núm. Pedido"] == pedido]
-        ws_oc = wb.create_sheet(str(pedido))
-        ws_oc.append(MASTER_HEADERS)
-        for r in sub:
-            ws_oc.append([r[h] for h in MASTER_HEADERS])
-        apply_header_style(ws_oc)
-        freeze_header_row(ws_oc)
-        format_column_as_text(ws_oc, get_column_letter(MASTER_HEADERS.index("EAN-13") + 1))
-        apply_alternating_fill(ws_oc, 2, ws_oc.max_row)
-        autofit_columns(ws_oc)
-
-    ws_res = wb.create_sheet("Resumen por Tienda")
-    ws_res.append(["Núm. Pedido", "Cedis", "Tienda", "Total Piezas", "Núm. Cajas", "Núm. Estilos", "Núm. EANs"])
+    # ---- Resumen por Tienda ----
+    res_headers = ["Núm. Pedido", "Cadena", "Tienda", "Total Piezas", "Núm. Estilos", "Núm. EANs"]
     grouped = defaultdict(list)
-    for b in boxes:
-        grouped[(b["oc"], b["tienda"])].append(b)
-    for (pedido, tienda), bxs in sorted(grouped.items()):
-        total_piezas = sum(b["total_piezas"] for b in bxs)
-        n_estilos = len(set(e for b in bxs for e in b["estilos"]))
-        n_eans = len(set(p["ean"] for b in bxs for p in b["productos"]))
-        ws_res.append([pedido, bxs[0]["cedis"], tienda, total_piezas, len(bxs), n_estilos, n_eans])
-    apply_header_style(ws_res)
-    freeze_header_row(ws_res)
-    apply_alternating_fill(ws_res, 2, ws_res.max_row)
-    autofit_columns(ws_res)
+    for r in rows:
+        grouped[(r["Núm. Pedido"], r["Tienda"])].append(r)
+    filas_res = []
+    for (pedido, tienda), items in sorted(grouped.items()):
+        total_piezas = sum(x["Cantidad"] for x in items)
+        n_estilos = len(set(x["Estilo"] for x in items))
+        n_eans = len(set(x["EAN-13"] for x in items))
+        filas_res.append([pedido, items[0]["Cadena"], tienda, total_piezas, n_estilos, n_eans])
+    _escribir_hoja(wb, "Resumen por Tienda", res_headers, filas_res)
 
-    ws_cajas = wb.create_sheet("Cajas")
-    ws_cajas.append(["Núm. Pedido", "Cedis", "Tienda", "Caja", "Total Piezas", "Estilos", "Núm. EANs"])
+    # ---- Lineal x Tienda (agrupado por caja real x estilo, como Label Matrix) ----
+    grupos_lineal = []
     for b in boxes:
-        ws_cajas.append([b["oc"], b["cedis"], b["tienda"], b["caja_txt"], b["total_piezas"],
-                          ", ".join(b["estilos"]), len(b["productos"])])
-    apply_header_style(ws_cajas)
-    freeze_header_row(ws_cajas)
-    apply_alternating_fill(ws_cajas, 2, ws_cajas.max_row)
-    autofit_columns(ws_cajas)
+        sub_estilo = defaultdict(list)
+        for p in b["productos"]:
+            sub_estilo[p["estilo"]].append(p)
+        for estilo, items in sub_estilo.items():
+            grupos_lineal.append((b, estilo, items))
+    max_p_lineal = max((len(items) for _, _, items in grupos_lineal), default=0)
+
+    lin_headers = ["Núm. Pedido", "Cadena", "Cedis", "Tienda", "Estilo", "Total Pzas x Estilo"]
+    for i in range(1, max_p_lineal + 1):
+        lin_headers += [f"EAN-13 P{i}", f"Talla P{i}", f"Color P{i}", f"Cant P{i}"]
+    lin_headers += ["EAN / Cantidad", "Número de Cajas x tienda"]
+
+    filas_lin = []
+    for b, estilo, items in grupos_lineal:
+        total_pzas = sum(int(p["cant"]) for p in items)
+        fila = [b["oc"], b["cadena"], b["cedis"], b["tienda"], estilo, total_pzas]
+        qr_lines = []
+        for p in items:
+            fila += [_ean_a_numero(p["ean"]), p["talla"], p["color"], int(p["cant"])]
+            qr_lines += [p["ean"], p["cant"]]
+        for _ in range(max_p_lineal - len(items)):
+            fila += [None, None, None, None]
+        fila.append("\n".join(qr_lines))
+        fila.append(b["caja_txt"])
+        filas_lin.append(fila)
+    ean_cols_lineal = [f"EAN-13 P{i}" for i in range(1, max_p_lineal + 1)]
+    _escribir_hoja(wb, "Lineal x Tienda", lin_headers, filas_lin, ean_cols=ean_cols_lineal)
+
+    # ---- Una hoja por Orden de Compra (formato ancho, 1 fila = 1 caja) ----
+    pedidos = sorted(set(b["oc"] for b in boxes))
+    for pedido in pedidos:
+        sub = [b for b in boxes if b["oc"] == pedido]
+        max_p = max((len(b["productos"]) for b in sub), default=0)
+
+        po_headers = ["Núm. Pedido", "Cadena", "Cedis", "Tienda", "Total Piezas Tienda",
+                      "Piezas x Caja", "Caja"]
+        for i in range(1, max_p + 1):
+            po_headers += [f"EAN-13 P{i}", f"Talla P{i}", f"Color P{i}", f"Cant P{i}"]
+        po_headers += ["EAN / Cantidad", "Núm. EANs x Caja"]
+
+        total_tienda = defaultdict(int)
+        for b in sub:
+            total_tienda[b["tienda"]] += b["total_piezas"]
+
+        filas_po = []
+        for b in sorted(sub, key=lambda x: x["tienda"]):
+            fila = [b["oc"], b["cadena"], b["cedis"], b["tienda"], total_tienda[b["tienda"]],
+                    b["total_piezas"], b["caja_txt"]]
+            qr_lines = []
+            for p in b["productos"]:
+                fila += [_ean_a_numero(p["ean"]), p["talla"], p["color"], int(p["cant"])]
+                qr_lines += [p["ean"], p["cant"]]
+            for _ in range(max_p - len(b["productos"])):
+                fila += [None, None, None, None]
+            fila.append("\n".join(qr_lines))
+            fila.append(len(b["productos"]))
+            filas_po.append(fila)
+
+        ean_cols_po = [f"EAN-13 P{i}" for i in range(1, max_p + 1)]
+        _escribir_hoja(wb, str(pedido), po_headers, filas_po, ean_cols=ean_cols_po)
 
     buf = BytesIO()
     wb.save(buf)

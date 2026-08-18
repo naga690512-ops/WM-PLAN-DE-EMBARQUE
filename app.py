@@ -50,6 +50,7 @@ if uploaded:
         col_estilo = selector("estilo", "Estilo", col1)
         col_talla = selector("talla", "Talla", col1)
         col_color = selector("color", "Color", col1)
+        col_proveedor = selector("proveedor", "# Proveedor (opcional)", col1)
     with col2:
         col_tienda = selector("tienda", "Tienda", col2)
         col_cantidad = selector("cantidad", "Cantidad", col2)
@@ -101,6 +102,7 @@ if uploaded:
                 "cadena": None if col_cadena == "(ninguna)" else col_cadena,
                 "descripcion": None if col_desc == "(ninguna)" else col_desc,
                 "departamento": None if col_depto == "(ninguna)" else col_depto,
+                "proveedor": None if col_proveedor == "(ninguna)" else col_proveedor,
             }
             cedis_desde_cadena = mapeo["cadena"] is not None
 
