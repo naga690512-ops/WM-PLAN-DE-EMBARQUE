@@ -118,6 +118,8 @@ if uploaded:
             st.session_state.empresa = empresa
             st.session_state.zpl_cache = {}
             st.session_state.pdf_cache = {}
+            st.session_state.zpl_qr_cache = {}
+            st.session_state.pdf_qr_cache = {}
             st.success(f"Listo: {len(rows)} líneas → {len(boxes)} cajas.")
 
 if st.session_state.boxes:
@@ -147,10 +149,15 @@ if st.session_state.boxes:
         st.session_state.zpl_cache = {}
     if "pdf_cache" not in st.session_state:
         st.session_state.pdf_cache = {}
+    if "zpl_qr_cache" not in st.session_state:
+        st.session_state.zpl_qr_cache = {}
+    if "pdf_qr_cache" not in st.session_state:
+        st.session_state.pdf_qr_cache = {}
 
     for oc in pedidos:
         n_cajas_oc = len([b for b in boxes if b["oc"] == oc])
         with st.expander(f"OC {oc} — {n_cajas_oc} cajas", expanded=True):
+            st.caption("Completo (Etiqueta 1 + 2 + 3):")
             colz, colp = st.columns(2)
             with colz:
                 if oc not in st.session_state.zpl_cache:
@@ -172,3 +179,26 @@ if st.session_state.boxes:
                     st.download_button("⬇️ Descargar PDF", st.session_state.pdf_cache[oc],
                                         file_name=f"Etiquetas_OC_{oc}.pdf",
                                         mime="application/pdf", key=f"pdfdl_{oc}")
+
+            st.caption("Solo Etiqueta 3 (QR):")
+            colz2, colp2 = st.columns(2)
+            with colz2:
+                if oc not in st.session_state.zpl_qr_cache:
+                    if st.button(f"Generar ZPL solo QR — {oc}", key=f"zplqrbtn_{oc}"):
+                        with st.spinner("Generando QR (puede tardar)..."):
+                            st.session_state.zpl_qr_cache[oc] = eng.generar_zpl_solo_qr_para_oc(boxes, oc, empresa)
+                        st.rerun()
+                else:
+                    st.download_button("⬇️ Descargar ZPL (solo QR)", st.session_state.zpl_qr_cache[oc],
+                                        file_name=f"Etiquetas_QR_OC_{oc}.zpl",
+                                        mime="text/plain", key=f"zplqrdl_{oc}")
+            with colp2:
+                if oc not in st.session_state.pdf_qr_cache:
+                    if st.button(f"Generar PDF solo QR — {oc}", key=f"pdfqrbtn_{oc}"):
+                        with st.spinner("Generando QR (puede tardar)..."):
+                            st.session_state.pdf_qr_cache[oc] = eng.generar_pdf_solo_qr_para_oc(boxes, oc, empresa)
+                        st.rerun()
+                else:
+                    st.download_button("⬇️ Descargar PDF (solo QR)", st.session_state.pdf_qr_cache[oc],
+                                        file_name=f"Etiquetas_QR_OC_{oc}.pdf",
+                                        mime="application/pdf", key=f"pdfqrdl_{oc}")

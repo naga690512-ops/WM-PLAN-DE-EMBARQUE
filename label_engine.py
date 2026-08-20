@@ -546,6 +546,27 @@ def generar_zpl_para_oc(boxes, oc, temporada, empresa):
     return "\n".join(out_blocks) + "\n"
 
 
+def generar_zpl_solo_qr_para_oc(boxes, oc, empresa):
+    """Genera un ZPL que trae ÚNICAMENTE la Etiqueta 3 (QR) de cada caja del pedido."""
+    out_blocks = []
+    for b in [x for x in boxes if x["oc"] == oc]:
+        cedis = b["cedis"]
+        tienda = str(b["tienda"])
+        piezas_caja = str(b["total_piezas"])
+        caja_txt = b["caja_txt"]
+        caja_barcode = caja_txt.replace(" ", "")
+        productos = b["productos"]
+
+        qr_lines = []
+        for p in productos:
+            qr_lines += [p["ean"], p["cant"]]
+        qr_content = "\n".join(qr_lines)
+        grf_name = f"QR{tienda}_{caja_barcode}.GRF"
+        out_blocks.append(etiqueta3_zpl(empresa, cedis, oc, tienda, len(productos), piezas_caja,
+                                         caja_txt, qr_content, grf_name))
+    return "\n".join(out_blocks) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # PDF: Etiquetas 1, 2 y 3
 # ---------------------------------------------------------------------------
@@ -730,6 +751,27 @@ def generar_pdf_para_oc(boxes, oc, temporada, empresa):
         _etiqueta1_pdf(c, temporada, cedis, oc, modelos_lines, tienda, piezas, caja_txt,
                        b["departamento"], b["descripcion"])
         _etiqueta2_pdf(c, tienda, caja_txt, productos)
+
+        qr_lines = []
+        for p in productos:
+            qr_lines += [p["ean"], p["cant"]]
+        _etiqueta3_pdf(c, empresa, cedis, oc, tienda, len(productos), piezas, caja_txt, "\n".join(qr_lines))
+
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+def generar_pdf_solo_qr_para_oc(boxes, oc, empresa):
+    """Genera un PDF que trae ÚNICAMENTE la Etiqueta 3 (QR) de cada caja del pedido."""
+    buf = BytesIO()
+    c = pdf_canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
+    for b in [x for x in boxes if x["oc"] == oc]:
+        cedis = b["cedis"]
+        tienda = str(b["tienda"])
+        piezas = str(b["total_piezas"])
+        caja_txt = b["caja_txt"]
+        productos = b["productos"]
 
         qr_lines = []
         for p in productos:
