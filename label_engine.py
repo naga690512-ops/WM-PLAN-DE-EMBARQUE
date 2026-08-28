@@ -719,13 +719,13 @@ def _etiqueta1_pdf(c, temporada, cedis, oc, modelos, tienda, piezas, caja_txt, d
     c.drawString(3 * MM, _y_top(42), "CEDIS:")
     cedis_x = 3 + c.stringWidth("CEDIS: ", "Helvetica-Bold", 15) / MM + 2
     c.drawString(cedis_x * MM, _y_top(42), str(cedis))
-    _draw_barcode(c, cedis, 57, 38, 14)
+    _draw_barcode(c, cedis, 57, 38, 14, bar_width=0.3)
     c.setFont("Helvetica", 8)
     c.drawString(57 * MM, _y_top(56), str(cedis))
 
     c.setFont("Helvetica-Bold", 15)
     c.drawString(3 * MM, _y_top(61), "OC:")
-    _draw_barcode(c, oc, 54, 58, 14)
+    _draw_barcode(c, oc, 54, 58, 14, bar_width=0.3)
     c.setFont("Helvetica", 8)
     c.drawString(54 * MM, _y_top(76), str(oc))
 
@@ -740,7 +740,7 @@ def _etiqueta1_pdf(c, temporada, cedis, oc, modelos, tienda, piezas, caja_txt, d
 
     c.setFont("Helvetica-Bold", 15)
     c.drawString(3 * MM, _y_top(97), "TIENDA DESTINO:")
-    _draw_barcode(c, tienda, 54, 93, 13)
+    _draw_barcode(c, tienda, 54, 93, 13, bar_width=0.3)
     c.setFont("Helvetica", 8)
     c.drawString(54 * MM, _y_top(110), str(tienda))
     c.setFont("Helvetica-Bold", 17)
@@ -819,7 +819,7 @@ def _etiqueta3_pdf_contenido(c, empresa, cedis, oc, tienda, num_upcs, piezas, ca
     c.drawString(20 * MM, _y_top(18), str(cedis))
 
     c.drawString(3 * MM, _y_top(30), "TIENDA")
-    _draw_barcode(c, tienda, 3, 34, 14)
+    _draw_barcode(c, tienda, 3, 34, 14, bar_width=0.3)
     c.setFont("Helvetica-Bold", 17)
     c.drawString(3 * MM, _y_top(56), str(tienda))
 
@@ -834,7 +834,7 @@ def _etiqueta3_pdf_contenido(c, empresa, cedis, oc, tienda, num_upcs, piezas, ca
 
     c.setFont("Helvetica-Bold", 10)
     c.drawString(3 * MM, _y_top(70), "ORDEN DE COMPRA")
-    _draw_barcode(c, oc, 3, 74, 14)
+    _draw_barcode(c, oc, 3, 74, 14, bar_width=0.3)
     c.setFont("Helvetica-Bold", 14)
     c.drawString(3 * MM, _y_top(96), str(oc))
 
