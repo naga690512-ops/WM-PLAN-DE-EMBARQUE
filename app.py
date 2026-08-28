@@ -123,6 +123,7 @@ if uploaded:
             st.session_state.zpl_fotos_cache = {}
             st.session_state.pdf_fotos_cache = {}
             st.session_state.foto_asignaciones = {}
+            st.session_state.fotos_acumuladas = {}
             st.session_state.excel_cache = None
             st.success(f"Listo: {len(rows)} líneas → {len(boxes)} cajas.")
 
@@ -151,38 +152,54 @@ if st.session_state.boxes:
 
     st.subheader("5. Fotos por modelo para Etiqueta QR + fotos (opcional)")
     st.caption("Nombra cada archivo con el código de Estilo exacto (ej. G026J04627.jpg). "
-               "Cada caja mostrará las fotos de los modelos que trae, hasta 8, acomodadas en cuadrícula.")
+               "Cada caja mostrará las fotos de los modelos que trae, hasta 8, acomodadas en cuadrícula. "
+               "Puedes subir en varias rondas — se van acumulando.")
     estilos_conocidos = sorted(set(e for b in boxes for e in b["estilos"]))
     fotos_subidas = st.file_uploader("Fotografías (una por modelo)", type=["jpg", "jpeg", "png"],
                                       accept_multiple_files=True, key="fotos_uploader")
 
-    fotos_por_estilo = {}
-    if fotos_subidas:
-        if len(fotos_subidas) > 8:
-            st.warning(f"Subiste {len(fotos_subidas)} fotos; solo se usarán las primeras 8.")
-        fotos_subidas = fotos_subidas[:8]
+    if "fotos_acumuladas" not in st.session_state:
+        st.session_state.fotos_acumuladas = {}  # nombre -> bytes
 
-        firma_actual = tuple((f.name, len(f.getvalue())) for f in fotos_subidas)
-        if st.session_state.get("fotos_firma") != firma_actual:
-            st.session_state.fotos_firma = firma_actual
+    if fotos_subidas:
+        for f in fotos_subidas:
+            if f.name not in st.session_state.fotos_acumuladas:
+                st.session_state.fotos_acumuladas[f.name] = f.getvalue()
+                st.session_state.zpl_fotos_cache = {}
+                st.session_state.pdf_fotos_cache = {}
+
+    fotos_por_estilo = {}
+    if st.session_state.fotos_acumuladas:
+        nombres = list(st.session_state.fotos_acumuladas.keys())
+        if len(nombres) > 8:
+            st.warning(f"Tienes {len(nombres)} fotos acumuladas; solo se usarán las primeras 8. "
+                       "Quita alguna abajo si necesitas otra combinación.")
+        nombres = nombres[:8]
+
+        if st.button("🗑️ Quitar todas las fotos"):
+            st.session_state.fotos_acumuladas = {}
+            st.session_state.foto_asignaciones = {}
             st.session_state.zpl_fotos_cache = {}
             st.session_state.pdf_fotos_cache = {}
+            st.rerun()
+
+        if "foto_asignaciones" not in st.session_state:
             st.session_state.foto_asignaciones = {}
 
         st.caption("Confirma o corrige a qué modelo corresponde cada foto:")
-        cols_fotos = st.columns(min(len(fotos_subidas), 4))
+        cols_fotos = st.columns(min(len(nombres), 4))
         opciones_estilo = ["(ninguno)"] + estilos_conocidos
-        for i, f in enumerate(fotos_subidas):
+        for i, nombre in enumerate(nombres):
             with cols_fotos[i % len(cols_fotos)]:
-                st.image(f.getvalue(), width=120)
-                nombre_sin_ext = f.name.rsplit(".", 1)[0].strip()
+                st.image(st.session_state.fotos_acumuladas[nombre], width=120)
+                nombre_sin_ext = nombre.rsplit(".", 1)[0].strip()
                 sugerido = nombre_sin_ext if nombre_sin_ext in estilos_conocidos else "(ninguno)"
-                idx = opciones_estilo.index(st.session_state.foto_asignaciones.get(f.name, sugerido)) \
-                    if st.session_state.foto_asignaciones.get(f.name, sugerido) in opciones_estilo else 0
-                elegido = st.selectbox(f.name, opciones_estilo, index=idx, key=f"asign_{f.name}")
-                st.session_state.foto_asignaciones[f.name] = elegido
+                idx = opciones_estilo.index(st.session_state.foto_asignaciones.get(nombre, sugerido)) \
+                    if st.session_state.foto_asignaciones.get(nombre, sugerido) in opciones_estilo else 0
+                elegido = st.selectbox(nombre, opciones_estilo, index=idx, key=f"asign_{nombre}")
+                st.session_state.foto_asignaciones[nombre] = elegido
                 if elegido != "(ninguno)":
-                    fotos_por_estilo[elegido] = f.getvalue()
+                    fotos_por_estilo[elegido] = st.session_state.fotos_acumuladas[nombre]
 
     st.session_state.fotos_por_estilo = fotos_por_estilo
 
