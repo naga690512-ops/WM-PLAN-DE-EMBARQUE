@@ -567,6 +567,81 @@ def generar_zpl_solo_qr_para_oc(boxes, oc, empresa):
     return "\n".join(out_blocks) + "\n"
 
 
+# --- Etiqueta 3 + foto (misma info del QR, con una fotografía anexa abajo) ---
+
+FOTO_AREA_X_MM = 6
+FOTO_AREA_Y_MM = 100
+FOTO_AREA_W_MM = 89.6
+FOTO_AREA_H_MM = 48
+
+
+def foto_a_grf_hex(img, max_w_mm=FOTO_AREA_W_MM, max_h_mm=FOTO_AREA_H_MM):
+    """Convierte una foto (PIL Image) a GRF hex con dithering (para verse bien
+    en el térmico, a diferencia del QR que usa umbral duro). Devuelve también
+    el tamaño final en px para poder centrarla en su área."""
+    import numpy as np
+    from PIL import Image
+
+    img = img.convert("L")
+    target_w_px = d(max_w_mm)
+    target_h_px = d(max_h_mm)
+    ratio = min(target_w_px / img.width, target_h_px / img.height)
+    new_w, new_h = max(1, int(img.width * ratio)), max(1, int(img.height * ratio))
+    img_resized = img.resize((new_w, new_h), Image.LANCZOS)
+    bw = img_resized.convert("1")  # dithering Floyd-Steinberg por defecto
+
+    arr = np.array(bw)
+    black_mask = (arr == 0).astype(np.uint8)  # 0=negro en modo '1' de PIL
+    packed = np.packbits(black_mask, axis=1, bitorder="big")
+    bytes_per_row = packed.shape[1]
+    hexdata = packed.tobytes().hex().upper()
+    total_bytes = bytes_per_row * new_h
+    return new_w, new_h, bytes_per_row, total_bytes, hexdata
+
+
+def etiqueta3_con_foto_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt,
+                            qr_content, grf_name, foto_datos, foto_grf_name):
+    """foto_datos: tupla (fw, fh, fbpr, ftotal, fhex) ya calculada una sola vez
+    con foto_a_grf_hex(), para no reprocesar la misma foto en cada caja."""
+    base = etiqueta3_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content, grf_name)
+    base = base.rsplit("^XZ", 1)[0]  # quitar el cierre para insertar la foto antes
+
+    fw, fh, fbpr, ftotal, fhex = foto_datos
+    area_w_px, area_h_px = d(FOTO_AREA_W_MM), d(FOTO_AREA_H_MM)
+    off_x = (area_w_px - fw) // 2
+    off_y = (area_h_px - fh) // 2
+    foto_x = d(FOTO_AREA_X_MM) + off_x
+    foto_y = d(FOTO_AREA_Y_MM) + off_y
+
+    foto_block = (f"~DGR:{foto_grf_name},{ftotal},{fbpr},{fhex}\n"
+                  f"^FO{foto_x},{foto_y}^XGR:{foto_grf_name},1,1^FS\n")
+    return base + foto_block + "^XZ"
+
+
+def generar_zpl_qr_foto_para_oc(boxes, oc, empresa, foto_img):
+    """Genera un ZPL con la Etiqueta 3 (QR) + la fotografía anexa, de cada caja del pedido."""
+    foto_datos = foto_a_grf_hex(foto_img)  # se calcula UNA sola vez, se reusa en todas las cajas
+    foto_grf_name = "FOTO_ANEXA.GRF"
+
+    out_blocks = []
+    for b in [x for x in boxes if x["oc"] == oc]:
+        cedis = b["cedis"]
+        tienda = str(b["tienda"])
+        piezas_caja = str(b["total_piezas"])
+        caja_txt = b["caja_txt"]
+        caja_barcode = caja_txt.replace(" ", "")
+        productos = b["productos"]
+
+        qr_lines = []
+        for p in productos:
+            qr_lines += [p["ean"], p["cant"]]
+        qr_content = "\n".join(qr_lines)
+        grf_name = f"QR{tienda}_{caja_barcode}.GRF"
+        out_blocks.append(etiqueta3_con_foto_zpl(empresa, cedis, oc, tienda, len(productos), piezas_caja,
+                                                   caja_txt, qr_content, grf_name, foto_datos, foto_grf_name))
+    return "\n".join(out_blocks) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # PDF: Etiquetas 1, 2 y 3
 # ---------------------------------------------------------------------------
@@ -702,7 +777,7 @@ def _etiqueta2_pdf(c, tienda, caja_txt, productos):
         c.showPage()
 
 
-def _etiqueta3_pdf(c, empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content):
+def _etiqueta3_pdf_contenido(c, empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content):
     c.setFont("Helvetica-Bold", 8)
     c.drawString(3 * MM, _y_top(6), empresa)
 
@@ -734,6 +809,9 @@ def _etiqueta3_pdf(c, empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr
     c.setFont("Helvetica-Bold", 14)
     c.drawString(3 * MM, _y_top(96), str(oc))
 
+
+def _etiqueta3_pdf(c, empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content):
+    _etiqueta3_pdf_contenido(c, empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content)
     c.showPage()
 
 
@@ -777,6 +855,46 @@ def generar_pdf_solo_qr_para_oc(boxes, oc, empresa):
         for p in productos:
             qr_lines += [p["ean"], p["cant"]]
         _etiqueta3_pdf(c, empresa, cedis, oc, tienda, len(productos), piezas, caja_txt, "\n".join(qr_lines))
+
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+def _etiqueta3_con_foto_pdf(c, empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content, foto_reader):
+    _etiqueta3_pdf_contenido(c, empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content)
+
+    from reportlab.lib.utils import ImageReader as _IR
+    iw, ih = foto_reader.getSize()
+    area_w, area_h = FOTO_AREA_W_MM * MM, FOTO_AREA_H_MM * MM
+    ratio = min(area_w / iw, area_h / ih)
+    new_w, new_h = iw * ratio, ih * ratio
+    x = FOTO_AREA_X_MM * MM + (area_w - new_w) / 2
+    offset_y_mm = (FOTO_AREA_H_MM - new_h / MM) / 2
+    top_edge_dist_from_top_mm = FOTO_AREA_Y_MM + offset_y_mm
+    y = _y_top(top_edge_dist_from_top_mm) - new_h
+    c.drawImage(foto_reader, x, y, width=new_w, height=new_h, preserveAspectRatio=True, mask="auto")
+
+    c.showPage()
+
+
+def generar_pdf_qr_foto_para_oc(boxes, oc, empresa, foto_bytes):
+    """Genera un PDF con la Etiqueta 3 (QR) + la fotografía anexa, de cada caja del pedido."""
+    foto_reader = ImageReader(BytesIO(foto_bytes))
+    buf = BytesIO()
+    c = pdf_canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
+    for b in [x for x in boxes if x["oc"] == oc]:
+        cedis = b["cedis"]
+        tienda = str(b["tienda"])
+        piezas = str(b["total_piezas"])
+        caja_txt = b["caja_txt"]
+        productos = b["productos"]
+
+        qr_lines = []
+        for p in productos:
+            qr_lines += [p["ean"], p["cant"]]
+        _etiqueta3_con_foto_pdf(c, empresa, cedis, oc, tienda, len(productos), piezas, caja_txt,
+                                 "\n".join(qr_lines), foto_reader)
 
     c.save()
     buf.seek(0)

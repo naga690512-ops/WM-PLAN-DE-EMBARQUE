@@ -3,3 +3,4 @@ openpyxl
 qrcode
 pillow
 reportlab
+numpy

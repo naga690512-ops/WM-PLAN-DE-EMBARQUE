@@ -120,6 +120,8 @@ if uploaded:
             st.session_state.pdf_cache = {}
             st.session_state.zpl_qr_cache = {}
             st.session_state.pdf_qr_cache = {}
+            st.session_state.zpl_foto_cache = {}
+            st.session_state.pdf_foto_cache = {}
             st.success(f"Listo: {len(rows)} líneas → {len(boxes)} cajas.")
 
 if st.session_state.boxes:
@@ -144,6 +146,19 @@ if st.session_state.boxes:
                         file_name="Plan_de_Embarque.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+    st.subheader("5. Foto para Etiqueta QR + foto (opcional)")
+    st.caption("Se anexa igual en todas las etiquetas del pedido que generes con esta opción.")
+    foto_subida = st.file_uploader("Fotografía", type=["jpg", "jpeg", "png"], key="foto_uploader")
+    if foto_subida is not None:
+        foto_bytes_actual = foto_subida.getvalue()
+        if st.session_state.get("foto_bytes") != foto_bytes_actual:
+            st.session_state.foto_bytes = foto_bytes_actual
+            st.session_state.zpl_foto_cache = {}
+            st.session_state.pdf_foto_cache = {}
+        st.image(foto_bytes_actual, width=200)
+    else:
+        st.session_state.foto_bytes = None
+
     st.markdown("**Etiquetas por pedido (1 + 2 + 3, ZPL y PDF):**")
     if "zpl_cache" not in st.session_state:
         st.session_state.zpl_cache = {}
@@ -153,6 +168,10 @@ if st.session_state.boxes:
         st.session_state.zpl_qr_cache = {}
     if "pdf_qr_cache" not in st.session_state:
         st.session_state.pdf_qr_cache = {}
+    if "zpl_foto_cache" not in st.session_state:
+        st.session_state.zpl_foto_cache = {}
+    if "pdf_foto_cache" not in st.session_state:
+        st.session_state.pdf_foto_cache = {}
 
     for oc in pedidos:
         n_cajas_oc = len([b for b in boxes if b["oc"] == oc])
@@ -202,3 +221,34 @@ if st.session_state.boxes:
                     st.download_button("⬇️ Descargar PDF (solo QR)", st.session_state.pdf_qr_cache[oc],
                                         file_name=f"Etiquetas_QR_OC_{oc}.pdf",
                                         mime="application/pdf", key=f"pdfqrdl_{oc}")
+
+            st.caption("Etiqueta QR + foto:")
+            if not st.session_state.get("foto_bytes"):
+                st.caption("Sube una fotografía arriba (paso 5) para habilitar esta opción.")
+            else:
+                colz3, colp3 = st.columns(2)
+                with colz3:
+                    if oc not in st.session_state.zpl_foto_cache:
+                        if st.button(f"Generar ZPL con foto — {oc}", key=f"zplftbtn_{oc}"):
+                            with st.spinner("Generando QR + foto (puede tardar)..."):
+                                from io import BytesIO as _BIO
+                                from PIL import Image as _Image
+                                foto_img = _Image.open(_BIO(st.session_state.foto_bytes))
+                                st.session_state.zpl_foto_cache[oc] = eng.generar_zpl_qr_foto_para_oc(
+                                    boxes, oc, empresa, foto_img)
+                            st.rerun()
+                    else:
+                        st.download_button("⬇️ Descargar ZPL (QR + foto)", st.session_state.zpl_foto_cache[oc],
+                                            file_name=f"Etiquetas_QRFoto_OC_{oc}.zpl",
+                                            mime="text/plain", key=f"zplftdl_{oc}")
+                with colp3:
+                    if oc not in st.session_state.pdf_foto_cache:
+                        if st.button(f"Generar PDF con foto — {oc}", key=f"pdfftbtn_{oc}"):
+                            with st.spinner("Generando QR + foto (puede tardar)..."):
+                                st.session_state.pdf_foto_cache[oc] = eng.generar_pdf_qr_foto_para_oc(
+                                    boxes, oc, empresa, st.session_state.foto_bytes)
+                            st.rerun()
+                    else:
+                        st.download_button("⬇️ Descargar PDF (QR + foto)", st.session_state.pdf_foto_cache[oc],
+                                            file_name=f"Etiquetas_QRFoto_OC_{oc}.pdf",
+                                            mime="application/pdf", key=f"pdfftdl_{oc}")
