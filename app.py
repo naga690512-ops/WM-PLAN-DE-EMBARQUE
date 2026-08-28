@@ -120,8 +120,10 @@ if uploaded:
             st.session_state.pdf_cache = {}
             st.session_state.zpl_qr_cache = {}
             st.session_state.pdf_qr_cache = {}
-            st.session_state.zpl_foto_cache = {}
-            st.session_state.pdf_foto_cache = {}
+            st.session_state.zpl_fotos_cache = {}
+            st.session_state.pdf_fotos_cache = {}
+            st.session_state.foto_asignaciones = {}
+            st.session_state.excel_cache = None
             st.success(f"Listo: {len(rows)} líneas → {len(boxes)} cajas.")
 
 if st.session_state.boxes:
@@ -141,23 +143,48 @@ if st.session_state.boxes:
     m3.metric("Piezas totales", total_piezas)
 
     with st.spinner("Generando Excel..."):
-        excel_buf = eng.construir_workbook(rows, boxes)
-    st.download_button("⬇️ Descargar Excel procesado", excel_buf,
+        if st.session_state.get("excel_cache") is None:
+            st.session_state.excel_cache = eng.construir_workbook(rows, boxes)
+    st.download_button("⬇️ Descargar Excel procesado", st.session_state.excel_cache,
                         file_name="Plan_de_Embarque.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    st.subheader("5. Foto para Etiqueta QR + foto (opcional)")
-    st.caption("Se anexa igual en todas las etiquetas del pedido que generes con esta opción.")
-    foto_subida = st.file_uploader("Fotografía", type=["jpg", "jpeg", "png"], key="foto_uploader")
-    if foto_subida is not None:
-        foto_bytes_actual = foto_subida.getvalue()
-        if st.session_state.get("foto_bytes") != foto_bytes_actual:
-            st.session_state.foto_bytes = foto_bytes_actual
-            st.session_state.zpl_foto_cache = {}
-            st.session_state.pdf_foto_cache = {}
-        st.image(foto_bytes_actual, width=200)
-    else:
-        st.session_state.foto_bytes = None
+    st.subheader("5. Fotos por modelo para Etiqueta QR + fotos (opcional)")
+    st.caption("Nombra cada archivo con el código de Estilo exacto (ej. G026J04627.jpg). "
+               "Cada caja mostrará las fotos de los modelos que trae, hasta 8, acomodadas en cuadrícula.")
+    estilos_conocidos = sorted(set(e for b in boxes for e in b["estilos"]))
+    fotos_subidas = st.file_uploader("Fotografías (una por modelo)", type=["jpg", "jpeg", "png"],
+                                      accept_multiple_files=True, key="fotos_uploader")
+
+    fotos_por_estilo = {}
+    if fotos_subidas:
+        if len(fotos_subidas) > 8:
+            st.warning(f"Subiste {len(fotos_subidas)} fotos; solo se usarán las primeras 8.")
+        fotos_subidas = fotos_subidas[:8]
+
+        firma_actual = tuple((f.name, len(f.getvalue())) for f in fotos_subidas)
+        if st.session_state.get("fotos_firma") != firma_actual:
+            st.session_state.fotos_firma = firma_actual
+            st.session_state.zpl_fotos_cache = {}
+            st.session_state.pdf_fotos_cache = {}
+            st.session_state.foto_asignaciones = {}
+
+        st.caption("Confirma o corrige a qué modelo corresponde cada foto:")
+        cols_fotos = st.columns(min(len(fotos_subidas), 4))
+        opciones_estilo = ["(ninguno)"] + estilos_conocidos
+        for i, f in enumerate(fotos_subidas):
+            with cols_fotos[i % len(cols_fotos)]:
+                st.image(f.getvalue(), width=120)
+                nombre_sin_ext = f.name.rsplit(".", 1)[0].strip()
+                sugerido = nombre_sin_ext if nombre_sin_ext in estilos_conocidos else "(ninguno)"
+                idx = opciones_estilo.index(st.session_state.foto_asignaciones.get(f.name, sugerido)) \
+                    if st.session_state.foto_asignaciones.get(f.name, sugerido) in opciones_estilo else 0
+                elegido = st.selectbox(f.name, opciones_estilo, index=idx, key=f"asign_{f.name}")
+                st.session_state.foto_asignaciones[f.name] = elegido
+                if elegido != "(ninguno)":
+                    fotos_por_estilo[elegido] = f.getvalue()
+
+    st.session_state.fotos_por_estilo = fotos_por_estilo
 
     st.markdown("**Etiquetas por pedido (1 + 2 + 3, ZPL y PDF):**")
     if "zpl_cache" not in st.session_state:
@@ -168,10 +195,10 @@ if st.session_state.boxes:
         st.session_state.zpl_qr_cache = {}
     if "pdf_qr_cache" not in st.session_state:
         st.session_state.pdf_qr_cache = {}
-    if "zpl_foto_cache" not in st.session_state:
-        st.session_state.zpl_foto_cache = {}
-    if "pdf_foto_cache" not in st.session_state:
-        st.session_state.pdf_foto_cache = {}
+    if "zpl_fotos_cache" not in st.session_state:
+        st.session_state.zpl_fotos_cache = {}
+    if "pdf_fotos_cache" not in st.session_state:
+        st.session_state.pdf_fotos_cache = {}
 
     for oc in pedidos:
         n_cajas_oc = len([b for b in boxes if b["oc"] == oc])
@@ -222,33 +249,34 @@ if st.session_state.boxes:
                                         file_name=f"Etiquetas_QR_OC_{oc}.pdf",
                                         mime="application/pdf", key=f"pdfqrdl_{oc}")
 
-            st.caption("Etiqueta QR + foto:")
-            if not st.session_state.get("foto_bytes"):
-                st.caption("Sube una fotografía arriba (paso 5) para habilitar esta opción.")
+            st.caption("Etiqueta QR + fotos por modelo:")
+            if not st.session_state.get("fotos_por_estilo"):
+                st.caption("Sube al menos una fotografía y asígnala a un modelo arriba (paso 5) para habilitar esta opción.")
             else:
                 colz3, colp3 = st.columns(2)
                 with colz3:
-                    if oc not in st.session_state.zpl_foto_cache:
-                        if st.button(f"Generar ZPL con foto — {oc}", key=f"zplftbtn_{oc}"):
-                            with st.spinner("Generando QR + foto (puede tardar)..."):
+                    if oc not in st.session_state.zpl_fotos_cache:
+                        if st.button(f"Generar ZPL con fotos — {oc}", key=f"zplftbtn_{oc}"):
+                            with st.spinner("Generando QR + fotos (puede tardar)..."):
                                 from io import BytesIO as _BIO
                                 from PIL import Image as _Image
-                                foto_img = _Image.open(_BIO(st.session_state.foto_bytes))
-                                st.session_state.zpl_foto_cache[oc] = eng.generar_zpl_qr_foto_para_oc(
-                                    boxes, oc, empresa, foto_img)
+                                fotos_img = {e: _Image.open(_BIO(fb))
+                                             for e, fb in st.session_state.fotos_por_estilo.items()}
+                                st.session_state.zpl_fotos_cache[oc] = eng.generar_zpl_qr_fotos_para_oc(
+                                    boxes, oc, empresa, fotos_img)
                             st.rerun()
                     else:
-                        st.download_button("⬇️ Descargar ZPL (QR + foto)", st.session_state.zpl_foto_cache[oc],
-                                            file_name=f"Etiquetas_QRFoto_OC_{oc}.zpl",
+                        st.download_button("⬇️ Descargar ZPL (QR + fotos)", st.session_state.zpl_fotos_cache[oc],
+                                            file_name=f"Etiquetas_QRFotos_OC_{oc}.zpl",
                                             mime="text/plain", key=f"zplftdl_{oc}")
                 with colp3:
-                    if oc not in st.session_state.pdf_foto_cache:
-                        if st.button(f"Generar PDF con foto — {oc}", key=f"pdfftbtn_{oc}"):
-                            with st.spinner("Generando QR + foto (puede tardar)..."):
-                                st.session_state.pdf_foto_cache[oc] = eng.generar_pdf_qr_foto_para_oc(
-                                    boxes, oc, empresa, st.session_state.foto_bytes)
+                    if oc not in st.session_state.pdf_fotos_cache:
+                        if st.button(f"Generar PDF con fotos — {oc}", key=f"pdfftbtn_{oc}"):
+                            with st.spinner("Generando QR + fotos (puede tardar)..."):
+                                st.session_state.pdf_fotos_cache[oc] = eng.generar_pdf_qr_fotos_para_oc(
+                                    boxes, oc, empresa, st.session_state.fotos_por_estilo)
                             st.rerun()
                     else:
-                        st.download_button("⬇️ Descargar PDF (QR + foto)", st.session_state.pdf_foto_cache[oc],
-                                            file_name=f"Etiquetas_QRFoto_OC_{oc}.pdf",
+                        st.download_button("⬇️ Descargar PDF (QR + fotos)", st.session_state.pdf_fotos_cache[oc],
+                                            file_name=f"Etiquetas_QRFotos_OC_{oc}.pdf",
                                             mime="application/pdf", key=f"pdfftdl_{oc}")
