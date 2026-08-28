@@ -546,6 +546,37 @@ def generar_zpl_para_oc(boxes, oc, temporada, empresa):
     return "\n".join(out_blocks) + "\n"
 
 
+def generar_zpl_completo_con_fotos_para_oc(boxes, oc, temporada, empresa, fotos_por_estilo):
+    """Genera Etiqueta 1 + 2 + 3(con fotos por modelo) de cada caja del pedido."""
+    cache_grf = {}
+    out_blocks = []
+    for b in [x for x in boxes if x["oc"] == oc]:
+        cedis = b["cedis"]
+        tienda = str(b["tienda"])
+        piezas_caja = str(b["total_piezas"])
+        caja_txt = b["caja_txt"]
+        caja_barcode = caja_txt.replace(" ", "")
+        productos = b["productos"]
+        modelos_lines = wrap_modelos(b["estilos"])
+
+        out_blocks.append(etiqueta1_zpl(temporada, cedis, oc, modelos_lines, tienda, piezas_caja,
+                                         caja_txt, caja_barcode, b["departamento"], b["descripcion"]))
+        out_blocks.append(etiqueta2_zpl(tienda, caja_txt, productos))
+
+        qr_lines = []
+        for p in productos:
+            qr_lines += [p["ean"], p["cant"]]
+        qr_content = "\n".join(qr_lines)
+        grf_name = f"QR{tienda}_{caja_barcode}.GRF"
+
+        fotos_caja = [(e, fotos_por_estilo[e]) for e in b["estilos"] if e in fotos_por_estilo]
+        fotos_caja = fotos_caja[:MAX_FOTOS_POR_ETIQUETA]
+        grf_prefix = f"FT{tienda}_{caja_barcode}_"
+        out_blocks.append(etiqueta3_multifoto_zpl(empresa, cedis, oc, tienda, len(productos), piezas_caja,
+                                                    caja_txt, qr_content, grf_name, fotos_caja, grf_prefix, cache_grf))
+    return "\n".join(out_blocks) + "\n"
+
+
 def generar_zpl_solo_qr_para_oc(boxes, oc, empresa):
     """Genera un ZPL que trae ÚNICAMENTE la Etiqueta 3 (QR) de cada caja del pedido."""
     out_blocks = []
@@ -863,6 +894,38 @@ def generar_pdf_para_oc(boxes, oc, temporada, empresa):
         for p in productos:
             qr_lines += [p["ean"], p["cant"]]
         _etiqueta3_pdf(c, empresa, cedis, oc, tienda, len(productos), piezas, caja_txt, "\n".join(qr_lines))
+
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+def generar_pdf_completo_con_fotos_para_oc(boxes, oc, temporada, empresa, fotos_por_estilo):
+    """Genera Etiqueta 1 + 2 + 3(con fotos por modelo) de cada caja del pedido."""
+    readers_por_estilo = {e: ImageReader(BytesIO(fb)) for e, fb in fotos_por_estilo.items()}
+
+    buf = BytesIO()
+    c = pdf_canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
+    for b in [x for x in boxes if x["oc"] == oc]:
+        cedis = b["cedis"]
+        tienda = str(b["tienda"])
+        piezas = str(b["total_piezas"])
+        caja_txt = b["caja_txt"]
+        productos = b["productos"]
+        modelos_lines = wrap_modelos(b["estilos"])
+
+        _etiqueta1_pdf(c, temporada, cedis, oc, modelos_lines, tienda, piezas, caja_txt,
+                       b["departamento"], b["descripcion"])
+        _etiqueta2_pdf(c, tienda, caja_txt, productos)
+
+        qr_lines = []
+        for p in productos:
+            qr_lines += [p["ean"], p["cant"]]
+
+        fotos_caja = [(e, readers_por_estilo[e]) for e in b["estilos"] if e in readers_por_estilo]
+        fotos_caja = fotos_caja[:MAX_FOTOS_POR_ETIQUETA]
+        _etiqueta3_multifoto_pdf(c, empresa, cedis, oc, tienda, len(productos), piezas, caja_txt,
+                                  "\n".join(qr_lines), fotos_caja)
 
     c.save()
     buf.seek(0)

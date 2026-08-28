@@ -122,6 +122,8 @@ if uploaded:
             st.session_state.pdf_qr_cache = {}
             st.session_state.zpl_fotos_cache = {}
             st.session_state.pdf_fotos_cache = {}
+            st.session_state.zpl_completo_fotos_cache = {}
+            st.session_state.pdf_completo_fotos_cache = {}
             st.session_state.foto_asignaciones = {}
             st.session_state.fotos_acumuladas = {}
             st.session_state.excel_cache = None
@@ -216,6 +218,10 @@ if st.session_state.boxes:
         st.session_state.zpl_fotos_cache = {}
     if "pdf_fotos_cache" not in st.session_state:
         st.session_state.pdf_fotos_cache = {}
+    if "zpl_completo_fotos_cache" not in st.session_state:
+        st.session_state.zpl_completo_fotos_cache = {}
+    if "pdf_completo_fotos_cache" not in st.session_state:
+        st.session_state.pdf_completo_fotos_cache = {}
 
     for oc in pedidos:
         n_cajas_oc = len([b for b in boxes if b["oc"] == oc])
@@ -242,6 +248,40 @@ if st.session_state.boxes:
                     st.download_button("⬇️ Descargar PDF", st.session_state.pdf_cache[oc],
                                         file_name=f"Etiquetas_OC_{oc}.pdf",
                                         mime="application/pdf", key=f"pdfdl_{oc}")
+
+            st.caption("Completo con fotos por modelo (Etiqueta 1 + 2 + 3-con-fotos):")
+            if not st.session_state.get("fotos_por_estilo"):
+                st.caption("Sube al menos una fotografía y asígnala a un modelo arriba (paso 5) para habilitar esta opción.")
+            else:
+                colz4, colp4 = st.columns(2)
+                with colz4:
+                    if oc not in st.session_state.zpl_completo_fotos_cache:
+                        if st.button(f"Generar ZPL completo con fotos — {oc}", key=f"zplcfbtn_{oc}"):
+                            with st.spinner("Generando etiquetas completas con fotos (puede tardar)..."):
+                                from io import BytesIO as _BIO
+                                from PIL import Image as _Image
+                                fotos_img = {e: _Image.open(_BIO(fb))
+                                             for e, fb in st.session_state.fotos_por_estilo.items()}
+                                st.session_state.zpl_completo_fotos_cache[oc] = eng.generar_zpl_completo_con_fotos_para_oc(
+                                    boxes, oc, temporada, empresa, fotos_img)
+                            st.rerun()
+                    else:
+                        st.download_button("⬇️ Descargar ZPL completo (con fotos)",
+                                            st.session_state.zpl_completo_fotos_cache[oc],
+                                            file_name=f"Etiquetas_CompletoFotos_OC_{oc}.zpl",
+                                            mime="text/plain", key=f"zplcfdl_{oc}")
+                with colp4:
+                    if oc not in st.session_state.pdf_completo_fotos_cache:
+                        if st.button(f"Generar PDF completo con fotos — {oc}", key=f"pdfcfbtn_{oc}"):
+                            with st.spinner("Generando etiquetas completas con fotos (puede tardar)..."):
+                                st.session_state.pdf_completo_fotos_cache[oc] = eng.generar_pdf_completo_con_fotos_para_oc(
+                                    boxes, oc, temporada, empresa, st.session_state.fotos_por_estilo)
+                            st.rerun()
+                    else:
+                        st.download_button("⬇️ Descargar PDF completo (con fotos)",
+                                            st.session_state.pdf_completo_fotos_cache[oc],
+                                            file_name=f"Etiquetas_CompletoFotos_OC_{oc}.pdf",
+                                            mime="application/pdf", key=f"pdfcfdl_{oc}")
 
             st.caption("Solo Etiqueta 3 (QR):")
             colz2, colp2 = st.columns(2)
