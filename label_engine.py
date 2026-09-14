@@ -517,7 +517,8 @@ def etiqueta3_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_con
              f"^FO{d(50)},{d(82)}^CF0,50^FD{caja_disp}^FS",
              f"^FO{d(3)},{d(68)}^CF0,36^FDORDEN DE COMPRA^FS",
              f"^FO{d(3)},{d(76)}^BY2,2,{d(14)}^BCN,{d(14)},N,N,N^FD{oc}^FS",
-             f"^FO{d(3)},{d(94)}^CF0,43^FD{oc}^FS", "^XZ"]
+             f"^FO{d(3)},{d(94)}^CF0,43^FD{oc}^FS",
+             f"^IDR:{grf_name}^FS", "^XZ"]
     return "\n".join(lines)
 
 
@@ -670,7 +671,11 @@ def etiqueta3_multifoto_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_t
         x = d(FOTO_AREA_X_MM + col_i * cell_w_mm) + off_x
         y = d(FOTO_AREA_Y_MM + fila_i * cell_h_mm) + off_y
         nombre = f"{grf_prefix}{i}.GRF"
-        bloques_foto.append(f"~DGR:{nombre},{ftotal},{fbpr},{fhex}\n^FO{x},{y}^XGR:{nombre},1,1^FS\n")
+        bloques_foto.append(
+            f"~DGR:{nombre},{ftotal},{fbpr},{fhex}\n"
+            f"^FO{x},{y}^XGR:{nombre},1,1^FS\n"
+            f"^IDR:{nombre}^FS\n"
+        )
 
     return base + "".join(bloques_foto) + "^XZ"
 
