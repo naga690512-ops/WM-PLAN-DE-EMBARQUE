@@ -495,7 +495,8 @@ def etiqueta2_zpl(tienda, caja_txt, productos):
     return "\n".join(pages)
 
 
-def etiqueta3_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content, grf_name):
+def etiqueta3_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content, grf_name,
+                   tienda_bc_mod=2):
     total_bytes, bytes_per_row, grf_hex = qr_to_grf_hex(qr_content, size_mm=44)
     W, H = d(101.6), d(152.4)
     qr_x, qr_y = d(46), d(3)
@@ -508,7 +509,7 @@ def etiqueta3_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_con
              f"^FO{d(3)},{d(16)}^CF0,40^FDCEDIS^FS",
              f"^FO{d(25)},{d(16)}^CF0,40^FD{cedis}^FS",
              f"^FO{d(3)},{d(28)}^CF0,40^FDTIENDA^FS",
-             f"^FO{d(3)},{d(36)}^BY2,2,{d(14)}^BCN,{d(14)},N,N,N^FD{tienda}^FS",
+             f"^FO{d(3)},{d(36)}^BY{tienda_bc_mod},2,{d(14)}^BCN,{d(14)},N,N,N^FD{tienda}^FS",
              f"^FO{d(3)},{d(54)}^CF0,55^FD{tienda}^FS",
              f"^FO{d(46)},{d(50)}^CF0,36^FDUPC  {num_upcs}^FS",
              f"^FO{d(46)},{d(59)}^CF0,36^FDPIEZAS EN LA CAJA  {piezas}^FS",
@@ -642,11 +643,13 @@ def foto_a_grf_hex(img, max_w_mm=FOTO_AREA_W_MM, max_h_mm=FOTO_AREA_H_MM):
 
 
 def etiqueta3_multifoto_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt,
-                             qr_content, grf_name, fotos, grf_prefix, cache_grf):
+                             qr_content, grf_name, fotos, grf_prefix, cache_grf,
+                             tienda_bc_mod=2):
     """fotos: lista de (estilo, PIL.Image) ya en el orden a mostrar (máx 8).
     cache_grf: dict compartido entre cajas para no recodificar la misma foto
     al mismo tamaño de celda más de una vez."""
-    base = etiqueta3_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content, grf_name)
+    base = etiqueta3_zpl(empresa, cedis, oc, tienda, num_upcs, piezas, caja_txt, qr_content, grf_name,
+                          tienda_bc_mod=tienda_bc_mod)
     base = base.rsplit("^XZ", 1)[0]
 
     if not fotos:
@@ -702,8 +705,11 @@ def generar_zpl_qr_fotos_para_oc(boxes, oc, empresa, fotos_por_estilo):
         fotos_caja = [(e, fotos_por_estilo[e]) for e in b["estilos"] if e in fotos_por_estilo]
         fotos_caja = fotos_caja[:MAX_FOTOS_POR_ETIQUETA]
         grf_prefix = f"FT{tienda}_{caja_barcode}_"
+        # Código de barras de tienda un poco más largo solo en esta etiqueta
+        # (QR+fotos); el resto de etiquetas conserva el ancho original.
         out_blocks.append(etiqueta3_multifoto_zpl(empresa, cedis, oc, tienda, len(productos), piezas_caja,
-                                                    caja_txt, qr_content, grf_name, fotos_caja, grf_prefix, cache_grf))
+                                                    caja_txt, qr_content, grf_name, fotos_caja, grf_prefix, cache_grf,
+                                                    tienda_bc_mod=3))
     return "\n".join(out_blocks) + "\n"
 
 
